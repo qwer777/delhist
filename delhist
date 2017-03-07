@@ -1,0 +1,177 @@
+#!/bin/bash
+##### Constants 
+historyFile="$HISTFILE"
+histLength=$(wc -l < $historyFile) 
+showHistoryOnExit=1
+
+##### Functions
+####Array Section
+#Unsets all values of a given array
+emptyArray () {
+unset $1[*] 
+} 
+
+#Sorts an array numerically high to low
+sortArray () {
+tmp="$1[@]"
+unsortedArray=("${!tmp}")
+oIFS=$IFS
+local IFS=$'\n' 
+sortedArray=($(sort -u -g -r<<<"${unsortedArray[*]}"))
+emptyArray $1
+for i in ${!sortedArray[@]}
+do
+declare -g $1[$i]=${sortedArray[$i]}
+done
+IFS=$oIFS
+} 
+
+####Range Section
+#Check if an array has a range (ex: 20-50) in it
+hasRange () {
+checkArray=( "$@" )
+for i in ${!checkArray[@]}
+do
+if isRange ${checkArray[$i]}; then
+rangeExpand ${checkArray[$i]}
+checkArray[$i]=${expandedArray[0]}
+for i in ${!expandedArray[@]}
+do
+if [ $i -ne 0 ]; then
+fExpArray+=(${expandedArray[$i]})
+fi
+done
+else
+outOfBounds checkArray[$i]
+fi
+done
+ for i in ${!fExpArray[@]}
+do
+if ! outOfBounds fExpArray[$i]; then
+checkArray+=(${fExpArray[$i]})
+fi
+done 
+sortArray checkArray
+declare -g fullExpandedArray=(${checkArray[@]})
+} 
+
+#Makes sure the parameters entered are numbers (ex: 69) or ranges (ex: 20-50)
+isRange () {
+validRegex='^[0-9-]+$'
+rangeRegex='[0-9]-[0-9]+$'
+if ! [[ $1 =~ $validRegex ]]; then
+   echo "error: $1 is not valid" >&2; exit 1
+fi
+if ! [[ $1 =~ $rangeRegex ]]; then
+   return 1
+   else
+   return 0
+   fi
+} 
+
+#Expands the range to the full values (ex: 20 21 ... 49 50) 
+rangeExpand () {
+unset expandedArray
+unset expArray
+oIFS=$IFS
+local IFS='-'
+read lowEnd highEnd<<<"$1"
+IFS=$oIFS
+if [ $lowEnd -le $highEnd ]; then
+c=$lowEnd
+while [ $c -le $highEnd ]
+do
+expArray+=($c)
+((c++)) 
+done
+declare -g expandedArray=(${expArray[@]})
+elif [ $lowEnd -gt $highEnd ]; then
+rangeExpand "$highEnd-$lowEnd"
+else
+echo what?
+fi
+} 
+
+####General Section
+#Displays help text
+displayHelp () {
+optionArray[0]="-h, --help" 
+textArray[0]="Display this help and exit"
+optionArray[1]="-d, --display" 
+textArray[1]="Display the changed history on exit"
+numberArray[0]="TYPE"
+exampleArray[0]="EXAMPLES"
+numberArray[1]="Integer"
+exampleArray[1]="28 20 69 37"
+numberArray[2]="Range"
+exampleArray[2]="20-50 42-34 15-15"
+echo "`basename $0` [options] [number values]
+FUNCTION: Delete the history line numbers that are provided
+NOTE: Hyphens are optional for single hyphen flags
+OPTIONS:" 
+printHelp optionArray textArray
+printf "NUMBER VALUES:\n"
+printHelp numberArray exampleArray
+} 
+
+#Process to do the history deleting
+main () {
+if [ $# -eq 0 ];then
+displayHelp
+exit 0
+fi
+case "$1" in
+h|-h|--help)
+displayHelp
+exit 0;;
+d|-d|--display)
+showHistoryOnExit=0
+shift;;
+esac
+history -r $historyFile
+hasRange "$@" 
+for i in ${!fullExpandedArray[@]}
+do 
+history -d ${fullExpandedArray[$i]}
+done
+refreshHistory
+if [ $showHistoryOnExit -eq 0 ]; then
+history
+fi
+} 
+
+#Tests if a number entered is beyond the end of the history file 
+outOfBounds () {
+upperLimit=$histLength
+if [ ${!1} -gt $upperLimit ]; then 
+echo "${!1} is out of bounds. Ignoring ${!1}." 
+unset $1
+return 0
+else
+return 1
+fi
+} 
+
+#Prints help text
+printHelp () {
+PADDING=15
+tmp="$1[@]"
+num1Array=("${!tmp}")
+tmp="$2[@]"
+num2Array=("${!tmp}")
+for i in ${!num1Array[@]}
+do
+numSpaces=$(($PADDING-${#num1Array[$i]}))
+printf "%b${num1Array[$i]}%${numSpaces}s${num2Array[$i]}\n"
+done
+} 
+
+#Rewrite the edited history to the history file
+refreshHistory () {
+history -w $historyFile
+history -c
+history -r $historyFile
+}
+
+#####Main
+main "$@"
